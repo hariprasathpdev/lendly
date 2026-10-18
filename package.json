@@ -1,0 +1,5 @@
+{"name":"lendly","version":"0.1.0","private":true,"type":"module","workspaces":["client","server"],"scripts":{"dev":"concurrently -k -n api,web -c cyan,green \"npm:dev:server\" \"npm:dev:client\"","dev:client":"npm --workspace client run dev","dev:server":"npm --workspace server run dev","build":"npm --workspace client run build && npm --workspace server run check","test":"npm --workspace server test && npm --workspace client test","lint":"npm --workspace server run lint && npm --workspace client run lint","start":"npm --workspace server start"},"devDependencies":{"@eslint/js":"^10.0.0","concurrently":"^9.2.1","eslint":"^10.0.0","eslint-plugin-react-x":"^5.28.1","globals":"^15.14.0"},"engines":{"node":">=20.19"}}
+
+
+
+

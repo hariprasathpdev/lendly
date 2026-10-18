@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import { isAllowedCollegeEmail } from '../src/utils/email-domain.js';
+test('college domain check accepts the exact configured domain only',()=>{assert.equal(isAllowedCollegeEmail('Student@kongu.edu',['kongu.edu']),true);assert.equal(isAllowedCollegeEmail('student@sub.kongu.edu',['kongu.edu']),false);assert.equal(isAllowedCollegeEmail('student@notkongu.edu',['kongu.edu']),false);assert.equal(isAllowedCollegeEmail('not-an-email',['kongu.edu']),false)});

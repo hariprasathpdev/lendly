@@ -1,0 +1,5 @@
+import { createContext,useContext,useEffect,useState } from 'react';
+import { supabase } from '../../services/supabase.js';
+const AuthContext=createContext({session:null,loading:false,configured:Boolean(supabase),signOut:async()=>{}});
+export function AuthProvider({children}){const [session,setSession]=useState(null);const [loading,setLoading]=useState(Boolean(supabase));useEffect(()=>{if(!supabase)return undefined;let active=true;supabase.auth.getSession().then(({data})=>{if(active){setSession(data.session);setLoading(false)}}).catch(()=>{if(active)setLoading(false)});const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,next)=>{setSession(next);setLoading(false)});return()=>{active=false;subscription.unsubscribe()}},[]);async function signOut(){if(supabase)await supabase.auth.signOut()}return <AuthContext.Provider value={{session,user:session?.user??null,loading,configured:Boolean(supabase),signOut}}>{children}</AuthContext.Provider>}
+export function useAuth(){return useContext(AuthContext)}

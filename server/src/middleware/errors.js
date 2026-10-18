@@ -1,0 +1,2 @@
+export function notFound(_req,res){res.status(404).json({error:{code:'NOT_FOUND',message:'The requested route was not found.'}})}
+export function errorHandler(error,req,res,_next){const status=Number.isInteger(error.status)?error.status:500;const message=status>=500?'An unexpected server error occurred.':error.message;if(status>=500)console.error({event:'request_error',method:req.method,path:req.path,errorName:error.name??'Error'});res.status(status).json({error:{code:error.code??'INTERNAL_ERROR',message}})}
