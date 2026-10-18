@@ -11,6 +11,8 @@ export default function AdminPage() {
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
   const [result, setResult] = useState({ key: null, listings: [], error: null });
+  const [overviewRetry, setOverviewRetry] = useState(0);
+  const [overview, setOverview] = useState({ key: null, counts: null, error: null });
   const requestKey = `${queueStatus}:${retryCount}`;
 
   useEffect(() => {
@@ -24,6 +26,15 @@ export default function AdminPage() {
       });
     return () => { active = false; };
   }, [queueStatus, requestKey]);
+
+  useEffect(() => {
+    let active = true;
+    const key = String(overviewRetry);
+    apiRequest('/admin/overview')
+      .then(({ counts }) => { if (active) setOverview({ key, counts, error: null }); })
+      .catch((error) => { if (active) setOverview({ key, counts: null, error }); });
+    return () => { active = false; };
+  }, [overviewRetry]);
 
   const loading = result.key !== requestKey;
 
@@ -55,8 +66,17 @@ export default function AdminPage() {
     <main id="main" className="marketplace-page wrap">
       <div className="marketplace-heading">
         <div><div className="eyebrow">CAMPUS ADMINISTRATION</div><h1>Listing moderation</h1><p>Review student listings and give clear feedback on changes.</p></div>
-        <span className="admin-page-links"><Link className="outline-button" to="/admin/disputes">Review disputes</Link><Link className="outline-button" to="/admin/reports">Review reports</Link><Link className="outline-button" to="/admin/overdue">Overdue items</Link><Link className="outline-button" to="/admin/refunds">Review refunds</Link><Link className="outline-button" to="/dashboard">Student dashboard</Link></span>
+        <span className="admin-page-links"><Link className="outline-button" to="/admin/bookings">Bookings</Link><Link className="outline-button" to="/admin/users">Students</Link><Link className="outline-button" to="/admin/disputes">Disputes</Link><Link className="outline-button" to="/admin/reports">Reports</Link><Link className="outline-button" to="/admin/overdue">Overdue</Link><Link className="outline-button" to="/admin/refunds">Refunds</Link><Link className="outline-button" to="/admin/audit">Audit history</Link><Link className="outline-button" to="/dashboard">Student dashboard</Link></span>
       </div>
+      {overview.error && <div className="form-alert error" role="alert">Summary counts could not be loaded. <button className="text-button" onClick={() => setOverviewRetry((count) => count + 1)}>Retry</button></div>}
+      {overview.counts && <section className="admin-stats-grid" aria-label="Campus summary">
+        {[
+          ['Students', overview.counts.students], ['Bookings to monitor', overview.counts.activeBookings],
+          ['Listings to review', overview.counts.listingsToReview], ['Reports', overview.counts.reportsToReview],
+          ['Disputes', overview.counts.disputesToReview], ['Refunds', overview.counts.refundsToReview],
+          ['Overdue', overview.counts.overdueBookings], ['Fees to review', overview.counts.feesToReview],
+        ].map(([label, value]) => <article className="admin-stat-card" key={label}><span>{label}</span><b>{value}</b></article>)}
+      </section>}
       <div className="booking-toolbar" role="group" aria-label="Moderation queue">
         <button className={queueStatus === 'pending_review' ? 'booking-filter active' : 'booking-filter'} onClick={() => setQueueStatus('pending_review')}>Awaiting review</button>
         <button className={queueStatus === 'rejected' ? 'booking-filter active' : 'booking-filter'} onClick={() => setQueueStatus('rejected')}>Returned for changes</button>

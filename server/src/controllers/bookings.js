@@ -13,6 +13,7 @@ const bookingSelect = [
   'payments(id,provider,amount,currency,status,provider_payment_id,created_at,refunds(id,amount,status,provider_reference,created_at))',
   'late_fees(id,amount,days_overdue,grace_days,status,reason,created_at)',
   'deposits(amount,status)',
+  'reviews(id,reviewer_id,reviewee_id,rating,body,created_at)',
 ].join(',');
 
 function fail(status, code, message) {
@@ -109,6 +110,13 @@ function formatBooking(row, userId) {
       status: fee.status,
       reason: fee.reason,
       createdAt: fee.created_at,
+    })),
+    reviewedByMe: (row.reviews ?? []).some((review) => review.reviewer_id === userId),
+    reviews: (row.reviews ?? []).map((review) => ({
+      rating: review.rating,
+      body: review.body,
+      createdAt: review.created_at,
+      writtenByMe: review.reviewer_id === userId,
     })),
   };
 }

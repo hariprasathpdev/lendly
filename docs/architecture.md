@@ -16,4 +16,6 @@ The API is unavailable for private business actions until server environment cre
 
 Students submit listing or booking reports through authenticated API routes. Administrators review reports and calculated late fees through role-protected routes. A hosting scheduler calls the overdue endpoint once per day using a server-only `CRON_SECRET`; the API runs an idempotent database function that creates in-app reminders and fee calculations without collecting money.
 
+After a booking is completed, each participant can leave one rating and optional comment for the other participant. The item detail page shows the lender's campus review summary, and the booking page displays reviews associated with that completed exchange.
+
 Payment operations use a backend-controlled mode (`disabled`, `demo`, or `razorpay_test`). In test mode, the API creates Razorpay orders and verifies callbacks and webhooks; payment and refund references are stored separately from deposit records. The webhook route is public but accepts only signatures verified against the preserved raw request body. No live payment mode is available.

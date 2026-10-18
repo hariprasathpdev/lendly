@@ -254,11 +254,12 @@ export const requestDepositRefund = asyncHandler(async (req, res, next) => {
   res.status(201).json({ data: { ...data, note: 'This request is pending administrator review. No refund has been issued.' } });
 });
 
-export const listRefundRequests = asyncHandler(async (_req, res, next) => {
+export const listRefundRequests = asyncHandler(async (req, res, next) => {
   if (!requireDb(next)) return;
   const { data, error } = await adminClient.from('refunds')
-    .select('id,payment_id,requested_by,amount,status,provider_reference,created_at,payment:payments!refunds_payment_id_fkey(provider,provider_payment_id,booking:bookings!payments_booking_id_fkey(id,status,start_date,end_date,listing:listings!bookings_listing_id_fkey(id,title)),payer:profiles!payments_payer_id_fkey(id,full_name))')
+    .select('id,payment_id,requested_by,amount,status,provider_reference,created_at,payment:payments!refunds_payment_id_fkey!inner(provider,provider_payment_id,booking:bookings!payments_booking_id_fkey!inner(id,status,start_date,end_date,listing:listings!bookings_listing_id_fkey(id,title),borrower:profiles!bookings_borrower_id_fkey!inner(college_id)),payer:profiles!payments_payer_id_fkey(id,full_name))')
     .in('status', ['requested', 'under_review', 'approved', 'failed'])
+    .eq('payment.booking.borrower.college_id', req.profile.college_id)
     .order('created_at', { ascending: true })
     .limit(100);
   if (error) return next(fail(503, 'REFUND_SERVICE_UNAVAILABLE', 'Refund requests could not be loaded.'));
@@ -288,6 +289,11 @@ export const reviewRefund = asyncHandler(async (req, res, next) => {
   if (!requireDb(next)) return;
   const parsed = refundReviewSchema.safeParse(req.body);
   if (!parsed.success) return validationError(res, parsed);
+  const { data: target, error: targetError } = await adminClient.from('refunds')
+    .select('id,payment:payments!refunds_payment_id_fkey!inner(booking:bookings!payments_booking_id_fkey!inner(borrower:profiles!bookings_borrower_id_fkey!inner(college_id)))')
+    .eq('id', req.params.id).eq('payment.booking.borrower.college_id', req.profile.college_id).maybeSingle();
+  if (targetError) return next(fail(503, 'REFUND_SERVICE_UNAVAILABLE', 'The refund request could not be checked.'));
+  if (!target) return next(fail(404, 'REFUND_NOT_FOUND', 'The refund request was not found.'));
   const { data, error } = await adminClient.rpc('review_test_refund', {
     p_refund_id: req.params.id,
     p_admin_id: req.user.id,

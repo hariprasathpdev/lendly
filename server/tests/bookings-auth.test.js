@@ -19,7 +19,13 @@ test('booking, notification, messaging, and admin operations reject anonymous ca
       fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/refunds'),
       fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/reports'),
       fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/overdue'),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/overview'),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/users'),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/bookings'),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/admin/audit'),
       fetch('http://127.0.0.1:' + server.address().port + '/api/v1/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }),
+      fetch('http://127.0.0.1:' + server.address().port + '/api/v1/reviews/users/11111111-1111-4111-8111-111111111111'),
     ]);
     for (const response of responses) {
       assert.equal(response.status, 401);

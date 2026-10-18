@@ -10,7 +10,7 @@ const statusLabels = {
 };
 const actionLabels = {
   accept: 'Accept request', decline: 'Decline', confirm: 'Confirm request', pay: 'Review payment and confirm', refund: 'Request deposit refund', cancel: 'Cancel booking',
-  handover: 'Mark handed over', return: 'Request return', complete: 'Confirm return', dispute: 'Report an issue',
+  handover: 'Mark handed over', return: 'Request return', complete: 'Confirm return', dispute: 'Report an issue', review: 'Leave a review',
 };
 const actionConfirmations = {
   accept: 'Accept this borrowing request?',
@@ -70,6 +70,7 @@ function actionsFor(booking, paymentMode) {
   if (booking.side === 'borrower' && booking.status === 'completed' && paymentMode === 'razorpay_test'
       && ['pending', 'held'].includes(booking.depositStatus)
       && booking.payments?.some((payment) => payment.provider === 'razorpay_test' && payment.status === 'captured')) actions.push('refund');
+  if (booking.status === 'completed' && !booking.reviewedByMe) actions.push('review');
   if (['pending', 'accepted', 'confirmed', 'active', 'return_requested'].includes(booking.status)) actions.push('dispute');
   return actions;
 }
@@ -81,6 +82,7 @@ export default function BookingsPage() {
   const [notice, setNotice] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [disputeId, setDisputeId] = useState(null);
+  const [reviewId, setReviewId] = useState(null);
   const [paymentPolicy, setPaymentPolicy] = useState(null);
   const [result, setResult] = useState({ key: null, bookings: [], error: null });
   const requestKey = String(refreshCount);
@@ -225,6 +227,26 @@ export default function BookingsPage() {
     });
   }
 
+  async function submitReview(event, booking) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusyId(booking.id);
+    setNotice(null);
+    try {
+      await apiRequest('/reviews', {
+        method: 'POST',
+        body: { bookingId: booking.id, rating: Number(form.get('rating')), body: String(form.get('body') ?? '').trim() },
+      });
+      setNotice({ kind: 'success', text: 'Your review was saved and the other student was notified.' });
+      setReviewId(null);
+      setRefreshCount((count) => count + 1);
+    } catch (error) {
+      setNotice({ kind: 'error', text: error.message });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <main id="main" className="marketplace-page wrap">
       <div className="marketplace-heading">
@@ -256,6 +278,7 @@ export default function BookingsPage() {
               const otherPerson = booking.side === 'borrower' ? booking.lender : booking.borrower;
               const actions = actionsFor(booking, paymentPolicy?.mode);
               const showDisputeForm = disputeId === booking.id;
+              const showReviewForm = reviewId === booking.id;
               return (
                 <article className="booking-card" key={booking.id}>
                   <div className="booking-card-top">
@@ -291,14 +314,15 @@ export default function BookingsPage() {
                     <summary>Activity history</summary>
                     <ol>{booking.history.map((event) => <li key={event.id}><b>{statusLabels[event.newStatus] ?? event.newStatus}</b><span>{new Date(event.createdAt).toLocaleString()}</span>{event.reason && <small>{event.reason}</small>}</li>)}</ol>
                   </details>
+                  {booking.reviews?.length > 0 && <div className="booking-payment-note"><b>Reviews</b>{booking.reviews.map((review) => <p key={review.createdAt}>{review.writtenByMe ? 'Your review' : 'Review from the other student'}: {review.rating}/5{review.body ? ` · ${review.body}` : ''}</p>)}</div>}
                   <div className="booking-actions"><Link className="outline-button" to="/messages">Message {otherPerson?.fullName ?? 'student'}</Link></div>
-                  {actions.length > 0 && !showDisputeForm && (
+                  {actions.length > 0 && !showDisputeForm && !showReviewForm && (
                     <div className="booking-actions">
                       {actions.map((action) => <button
                         className={action === 'decline' || action === 'cancel' || action === 'dispute' ? 'outline-button' : 'button'}
                         key={action}
                         disabled={busyId === booking.id}
-                        onClick={() => action === 'dispute' ? setDisputeId(booking.id) : action === 'pay' ? startPayment(booking) : action === 'refund' ? requestRefund(booking) : performAction(booking, action)}
+                        onClick={() => action === 'dispute' ? setDisputeId(booking.id) : action === 'review' ? setReviewId(booking.id) : action === 'pay' ? startPayment(booking) : action === 'refund' ? requestRefund(booking) : performAction(booking, action)}
                       >{busyId === booking.id ? 'Updating…' : actionLabels[action]}</button>)}
                     </div>
                   )}
@@ -307,6 +331,12 @@ export default function BookingsPage() {
                     <label className="form-field">Reason<input name="reason" required minLength={2} maxLength={120} placeholder="For example, item condition" /></label>
                     <label className="form-field">What happened?<textarea name="details" required minLength={10} maxLength={5000} rows="4" placeholder="Describe the issue so campus support can review it." /></label>
                     <div className="booking-actions"><button className="button" disabled={busyId === booking.id}>{busyId === booking.id ? 'Submitting…' : 'Submit issue'}</button><button type="button" className="outline-button" onClick={() => setDisputeId(null)}>Cancel</button></div>
+                  </form>}
+                  {showReviewForm && <form className="dispute-form" onSubmit={(event) => submitReview(event, booking)}>
+                    <h3>Review {otherPerson?.fullName ?? 'the other student'}</h3>
+                    <label className="form-field">Rating<select name="rating" required defaultValue="5"><option value="5">5 · Great experience</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs improvement</option><option value="1">1 · Poor</option></select></label>
+                    <label className="form-field">Comment (optional)<textarea name="body" maxLength={2000} rows="3" placeholder="Share useful, respectful feedback about the borrowing experience." /></label>
+                    <div className="booking-actions"><button className="button" disabled={busyId === booking.id}>{busyId === booking.id ? 'Saving…' : 'Submit review'}</button><button type="button" className="outline-button" onClick={() => setReviewId(null)}>Cancel</button></div>
                   </form>}
                 </article>
               );

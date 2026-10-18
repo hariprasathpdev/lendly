@@ -19,17 +19,17 @@ export const runOverdueCheck = asyncHandler(async (_req, res, next) => {
   res.json({ data });
 });
 
-export const getOverdueDashboard = asyncHandler(async (_req, res, next) => {
+export const getOverdueDashboard = asyncHandler(async (req, res, next) => {
   if (!adminClient) return next(fail(503, 'DATABASE_UNCONFIGURED', 'Campus data services are not configured yet.'));
   const today = new Date().toISOString().slice(0, 10);
   const cutoff = cutoffDate(today, env.overdueGraceDays);
   const [bookingsResult, feesResult] = await Promise.all([
     adminClient.from('bookings')
-      .select('id,end_date,status,total_price,late_fee_per_day,listing:listings!bookings_listing_id_fkey(id,title),borrower:profiles!bookings_borrower_id_fkey(id,full_name),lender:profiles!bookings_lender_id_fkey(id,full_name)')
-      .eq('status', 'active').lt('end_date', cutoff).order('end_date', { ascending: true }).limit(100),
+      .select('id,end_date,status,total_price,late_fee_per_day,listing:listings!bookings_listing_id_fkey(id,title),borrower:profiles!bookings_borrower_id_fkey!inner(id,full_name,college_id),lender:profiles!bookings_lender_id_fkey(id,full_name)')
+      .eq('status', 'active').eq('borrower.college_id', req.profile.college_id).lt('end_date', cutoff).order('end_date', { ascending: true }).limit(100),
     adminClient.from('late_fees')
-      .select('id,booking_id,amount,days_overdue,grace_days,status,reason,resolution,created_at,booking:bookings!late_fees_booking_id_fkey(id,status,end_date,listing:listings!bookings_listing_id_fkey(id,title),borrower:profiles!bookings_borrower_id_fkey(id,full_name),lender:profiles!bookings_lender_id_fkey(id,full_name))')
-      .in('status', ['calculated', 'disputed']).order('created_at', { ascending: true }).limit(100),
+      .select('id,booking_id,amount,days_overdue,grace_days,status,reason,resolution,created_at,booking:bookings!late_fees_booking_id_fkey!inner(id,status,end_date,listing:listings!bookings_listing_id_fkey(id,title),borrower:profiles!bookings_borrower_id_fkey!inner(id,full_name,college_id),lender:profiles!bookings_lender_id_fkey(id,full_name))')
+      .in('status', ['calculated', 'disputed']).eq('booking.borrower.college_id', req.profile.college_id).order('created_at', { ascending: true }).limit(100),
   ]);
   if (bookingsResult.error || feesResult.error) return next(fail(503, 'OVERDUE_SERVICE_UNAVAILABLE', 'Overdue bookings and fee reviews could not be loaded.'));
   const bookings = (bookingsResult.data ?? []).map((row) => {

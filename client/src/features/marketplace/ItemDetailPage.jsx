@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, MapPin, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiRequest } from '../../services/api.js';
+import ListingCard from './ListingCard.jsx';
 
 const money = (value) => value === 0 ? 'Free' : `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const localDateInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -28,6 +29,8 @@ export default function ItemDetailPage() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportMessage, setReportMessage] = useState(null);
+  const [ownerReviews, setOwnerReviews] = useState({ userId: null, data: null, error: null });
+  const [relatedItems, setRelatedItems] = useState({ key: null, items: [], error: null });
   const requestKey = `${id}:${retryCount}`;
 
   useEffect(() => {
@@ -41,6 +44,28 @@ export default function ItemDetailPage() {
       });
     return () => { active = false; };
   }, [id, requestKey]);
+
+  useEffect(() => {
+    const userId = result.item?.owner?.id;
+    if (!userId) return undefined;
+    let active = true;
+    apiRequest(`/reviews/users/${userId}?pageSize=3`)
+      .then((data) => { if (active) setOwnerReviews({ userId, data, error: null }); })
+      .catch((error) => { if (active) setOwnerReviews({ userId, data: null, error }); });
+    return () => { active = false; };
+  }, [result.item?.owner?.id]);
+
+  useEffect(() => {
+    const category = result.item?.category?.slug;
+    const currentItemId = result.item?.id;
+    if (!category || !currentItemId) return undefined;
+    const key = `${category}:${currentItemId}`;
+    let active = true;
+    apiRequest(`/items?category=${encodeURIComponent(category)}&pageSize=5`)
+      .then(({ items }) => { if (active) setRelatedItems({ key, items: items.filter((item) => item.id !== currentItemId), error: null }); })
+      .catch((error) => { if (active) setRelatedItems({ key, items: [], error }); });
+    return () => { active = false; };
+  }, [result.item?.category?.slug, result.item?.id]);
 
   const loading = result.key !== requestKey;
   const error = loading ? null : result.error;
@@ -138,6 +163,13 @@ export default function ItemDetailPage() {
             <span><small>Listed by</small><b>{item.owner?.fullName ?? 'Campus student'}</b></span>
             <ShieldCheck size={17} />
           </div>
+          {ownerReviews.userId === item.owner?.id && !ownerReviews.error && <section className="item-rules" aria-label="Lender reviews">
+            <h2>Student reviews</h2>
+            {ownerReviews.data.total === 0 ? <p>No reviews yet.</p> : <>
+              <p><b>{ownerReviews.data.ratingAverage}/5</b> average from {ownerReviews.data.total} completed borrowing{ownerReviews.data.total === 1 ? '' : 's'}.</p>
+              {ownerReviews.data.reviews.map((review) => <p key={review.id}><b>{review.rating}/5 · {review.reviewer?.fullName ?? 'Campus student'}</b>{review.body ? ` — ${review.body}` : ''}</p>)}
+            </>}
+          </section>}
           {!ownListing && <section className="listing-report">
             {reportMessage && <div className={`form-alert ${reportMessage.kind}`} role="status">{reportMessage.text}</div>}
             {!reportOpen ? <button className="text-button" type="button" onClick={() => setReportOpen(true)}>Report this listing</button>
@@ -175,6 +207,10 @@ export default function ItemDetailPage() {
               )}
         </section>
       </div>
+      {relatedItems.key === `${item.category?.slug}:${item.id}` && !relatedItems.error && relatedItems.items.length > 0 && <section className="categories related-items">
+        <div className="section-heading"><div><div className="eyebrow">MORE FROM THIS CATEGORY</div><h2>Related campus items</h2></div><Link to={`/items?category=${encodeURIComponent(item.category.slug)}`}>Browse category →</Link></div>
+        <div className="listing-grid">{relatedItems.items.map((related) => <ListingCard key={related.id} item={related} />)}</div>
+      </section>}
     </main>
   );
 }

@@ -1,5 +1,12 @@
 alter table public.reports
   add column if not exists resolution text;
+alter table public.reports
+  add column if not exists college_id uuid references public.colleges(id);
+update public.reports r set college_id=coalesce(
+  (select p.college_id from public.listings l join public.profiles p on p.id=l.owner_id where l.id=r.listing_id),
+  (select p.college_id from public.bookings b join public.profiles p on p.id=b.borrower_id where b.id=r.booking_id)
+) where college_id is null;
+alter table public.reports alter column college_id set not null;
 
 alter table public.late_fees
   add column if not exists reviewed_by uuid references public.profiles(id),
@@ -12,6 +19,8 @@ alter table public.late_fees add constraint late_fees_status_check
 
 create unique index if not exists late_fees_booking_day_unique
   on public.late_fees(booking_id, days_overdue);
+create index if not exists reviews_reviewee_created_idx
+  on public.reviews(reviewee_id, created_at desc);
 
 create table public.overdue_job_runs (
   booking_id uuid not null references public.bookings(id) on delete cascade,
@@ -86,8 +95,8 @@ begin
     ) then raise exception 'REPORT_TARGET_NOT_FOUND' using errcode='P0002'; end if;
   end if;
 
-  insert into public.reports(reporter_id,listing_id,booking_id,reason,details)
-  values(p_reporter_id,p_listing_id,p_booking_id,trim(p_reason),trim(p_details))
+  insert into public.reports(reporter_id,listing_id,booking_id,college_id,reason,details)
+  values(p_reporter_id,p_listing_id,p_booking_id,reporter_college,trim(p_reason),trim(p_details))
   returning id into report_id;
 
   insert into public.notifications(user_id,type,title,body,related_type,related_id)
@@ -111,8 +120,10 @@ as $$
 declare
   report_row public.reports%rowtype;
   next_status text;
+  admin_college uuid;
 begin
-  if not exists(select 1 from public.profiles where id=p_admin_id and role='admin') then
+  select college_id into admin_college from public.profiles where id=p_admin_id and role='admin';
+  if admin_college is null then
     raise exception 'ADMIN_ACCESS_REQUIRED' using errcode='42501';
   end if;
   if p_action not in ('review','resolve','dismiss') then
@@ -124,6 +135,7 @@ begin
 
   select * into report_row from public.reports where id=p_report_id for update;
   if not found then raise exception 'REPORT_NOT_FOUND' using errcode='P0002'; end if;
+  if report_row.college_id is distinct from admin_college then raise exception 'REPORT_NOT_FOUND' using errcode='P0002'; end if;
   if report_row.status not in ('open','under_review') then raise exception 'REPORT_ALREADY_CLOSED' using errcode='P0001'; end if;
 
   next_status=case p_action when 'review' then 'under_review' when 'resolve' then 'resolved' else 'dismissed' end;
@@ -213,8 +225,10 @@ declare
   fee_row public.late_fees%rowtype;
   booking_row public.bookings%rowtype;
   next_status text;
+  admin_college uuid;
 begin
-  if not exists(select 1 from public.profiles where id=p_admin_id and role='admin') then
+  select college_id into admin_college from public.profiles where id=p_admin_id and role='admin';
+  if admin_college is null then
     raise exception 'ADMIN_ACCESS_REQUIRED' using errcode='42501';
   end if;
   if p_action not in ('confirm','waive') or length(trim(coalesce(p_resolution,''))) not between 2 and 2000 then
@@ -224,6 +238,9 @@ begin
   if not found then raise exception 'LATE_FEE_NOT_FOUND' using errcode='P0002'; end if;
   if fee_row.status not in ('calculated','disputed') then raise exception 'LATE_FEE_NOT_REVIEWABLE' using errcode='P0001'; end if;
   select * into booking_row from public.bookings where id=fee_row.booking_id;
+  if not exists(select 1 from public.profiles where id=booking_row.borrower_id and college_id=admin_college) then
+    raise exception 'LATE_FEE_NOT_FOUND' using errcode='P0002';
+  end if;
   next_status=case p_action when 'waive' then 'waived' else 'confirmed' end;
   update public.late_fees set status=next_status,reviewed_by=p_admin_id,reviewed_at=now(),resolution=trim(p_resolution)
   where id=fee_row.id;
@@ -240,11 +257,66 @@ begin
 end;
 $$;
 
+create or replace function public.submit_review(
+  p_booking_id uuid,
+  p_reviewer_id uuid,
+  p_rating integer,
+  p_body text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  booking_row public.bookings%rowtype;
+  reviewee_id uuid;
+  review_id uuid;
+begin
+  if p_rating not between 1 and 5 or length(trim(coalesce(p_body,'')))>2000 then
+    raise exception 'INVALID_REVIEW' using errcode='22023';
+  end if;
+  select * into booking_row from public.bookings where id=p_booking_id for update;
+  if not found then raise exception 'BOOKING_NOT_FOUND' using errcode='P0002'; end if;
+  if booking_row.status<>'completed' then raise exception 'BOOKING_NOT_COMPLETE' using errcode='P0001'; end if;
+  if p_reviewer_id=booking_row.borrower_id then
+    reviewee_id=booking_row.lender_id;
+  elsif p_reviewer_id=booking_row.lender_id then
+    reviewee_id=booking_row.borrower_id;
+  else
+    raise exception 'BOOKING_ACCESS_DENIED' using errcode='42501';
+  end if;
+  insert into public.reviews(booking_id,reviewer_id,reviewee_id,rating,body)
+  values(p_booking_id,p_reviewer_id,reviewee_id,p_rating,nullif(trim(coalesce(p_body,'')),''))
+  returning id into review_id;
+  insert into public.notifications(user_id,type,title,body,related_type,related_id)
+  values(reviewee_id,'review_received','A student left a review','A student left feedback after a completed campus borrowing.','booking',p_booking_id);
+  return jsonb_build_object('id',review_id,'bookingId',p_booking_id,'revieweeId',reviewee_id,'rating',p_rating);
+exception when unique_violation then
+  raise exception 'REVIEW_ALREADY_SUBMITTED' using errcode='P0001';
+end;
+$$;
+
+create or replace function public.get_user_review_summary(p_user_id uuid)
+returns jsonb
+language sql
+security definer
+set search_path=public
+as $$
+  select jsonb_build_object(
+    'total',count(*),
+    'ratingAverage',round(avg(rating)::numeric,1)
+  ) from public.reviews where reviewee_id=p_user_id;
+$$;
+
 revoke all on function public.submit_report(uuid,uuid,uuid,text,text) from public,anon,authenticated;
 revoke all on function public.review_report(uuid,uuid,text,text) from public,anon,authenticated;
 revoke all on function public.run_overdue_check(integer) from public,anon,authenticated;
 revoke all on function public.review_late_fee(uuid,uuid,text,text) from public,anon,authenticated;
+revoke all on function public.submit_review(uuid,uuid,integer,text) from public,anon,authenticated;
+revoke all on function public.get_user_review_summary(uuid) from public,anon,authenticated;
 grant execute on function public.submit_report(uuid,uuid,uuid,text,text) to service_role;
 grant execute on function public.review_report(uuid,uuid,text,text) to service_role;
 grant execute on function public.run_overdue_check(integer) to service_role;
 grant execute on function public.review_late_fee(uuid,uuid,text,text) to service_role;
+grant execute on function public.submit_review(uuid,uuid,integer,text) to service_role;
+grant execute on function public.get_user_review_summary(uuid) to service_role;

@@ -98,3 +98,5 @@
 .dispute-review-card{grid-template-columns:1fr}
 .dispute-review-card .moderation-body>p{padding:11px 13px;border-left:2px solid #ddaa92;background:#fcf7f4}
 @media(max-width:760px){.admin-page-links{flex-wrap:wrap}}
+.admin-stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0 25px}.admin-stat-card{display:grid;gap:6px;padding:14px;border:1px solid var(--line);border-radius:7px;background:#f8fbf9}.admin-stat-card span{font-size:10px;color:#718184}.admin-stat-card b{font:700 23px Manrope,sans-serif;color:var(--navy)}.overdue-section{margin-top:25px}.overdue-section .section-heading{margin-bottom:13px}.overdue-section .state-panel{margin-bottom:12px}.audit-metadata{max-height:220px;overflow:auto;padding:11px;border:1px solid #e9efec;border-radius:5px;background:#f7faf8;color:#52656a;font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere}.related-items{padding-top:45px;padding-bottom:10px}
+@media(max-width:760px){.admin-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.related-items{padding-top:30px}}

@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { requireAuth, requireVerifiedEmail, requireProfile, requireTermsAccepted, requireAdmin } from '../middleware/auth.js';
-import { listDisputes, listModerationQueue, listReports, resolveDispute, reviewListing, reviewReport } from '../controllers/admin.js';
+import { getAdminOverview, listAdminAudit, listAdminBookings, listAdminUsers, listDisputes, listModerationQueue, listReports, resolveDispute, reviewListing, reviewReport } from '../controllers/admin.js';
 import { listRefundRequests, reviewRefund } from '../controllers/payments.js';
 import { getOverdueDashboard, reviewLateFee } from '../controllers/overdue.js';
 
 const router = Router();
 router.use(requireAuth, requireVerifiedEmail, requireProfile, requireTermsAccepted, requireAdmin);
 router.get('/access-check', (req, res) => res.json({ data: { authorized: true, userId: req.user.id } }));
+router.get('/overview', getAdminOverview);
+router.get('/users', listAdminUsers);
+router.get('/bookings', listAdminBookings);
+router.get('/audit', listAdminAudit);
 router.get('/listings', listModerationQueue);
 router.patch('/listings/:id/review', reviewListing);
 router.get('/disputes', listDisputes);

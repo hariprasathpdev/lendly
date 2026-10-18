@@ -15,6 +15,7 @@ import categories from './routes/categories.js';
 import admin from './routes/admin.js';
 import reports from './routes/reports.js';
 import internal from './routes/internal.js';
+import reviews from './routes/reviews.js';
 import { notFound, errorHandler } from './middleware/errors.js';
 
 export const app = express();
@@ -45,6 +46,7 @@ app.use('/api/v1/me', me);
 app.use('/api/v1/admin', admin);
 app.use('/api/v1/reports', reports);
 app.use('/api/v1/internal', internal);
+app.use('/api/v1/reviews', reviews);
 app.use(notFound);
 app.use(errorHandler);
 
