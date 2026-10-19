@@ -1,6 +1,6 @@
 import { adminClient } from '../config/supabase.js';
 import { asyncHandler } from '../utils/async-handler.js';
-import { adminAuditQuerySchema, adminBookingQuerySchema, adminUserQuerySchema, disputeQuerySchema, disputeResolutionSchema, moderationActionSchema, moderationQuerySchema } from '../validators/admin.js';
+import { adminAuditQuerySchema, adminBookingQuerySchema, adminUserQuerySchema, disputeQuerySchema, disputeResolutionSchema, listingRemovalSchema, moderationActionSchema, moderationQuerySchema, securityEventQuerySchema, securityEventReviewSchema } from '../validators/admin.js';
 import { reportQuerySchema, reportReviewSchema } from '../validators/reports.js';
 import { env } from '../config/env.js';
 import { cutoffDate } from '../utils/overdue.js';
@@ -87,6 +87,35 @@ export const reviewListing = asyncHandler(async (req, res, next) => {
     if (mapped) return next(fail(...mapped));
     if (error.code === '42501') return next(fail(403, 'ADMIN_REQUIRED', 'Administrator access is required.'));
     return next(fail(503, 'MODERATION_SERVICE_UNAVAILABLE', 'The listing review could not be saved.'));
+  }
+  res.json({ data });
+});
+
+export const removeAdminListing = asyncHandler(async (req, res, next) => {
+  if (!requireDb(next)) return;
+  const parsed = listingRemovalSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed);
+  const { data: target, error: targetError } = await adminClient.from('listings')
+    .select('id,owner:profiles!listings_owner_id_fkey!inner(college_id)')
+    .eq('id', req.params.id).eq('owner.college_id', req.profile.college_id).maybeSingle();
+  if (targetError) return next(fail(503, 'MODERATION_SERVICE_UNAVAILABLE', 'The listing could not be checked.'));
+  if (!target) return next(fail(404, 'LISTING_NOT_FOUND', 'The listing was not found.'));
+  const { data, error } = await adminClient.rpc('remove_approved_listing', {
+    p_listing_id: req.params.id,
+    p_admin_id: req.user.id,
+    p_reason: parsed.data.reason,
+  });
+  if (error) {
+    const known = {
+      LISTING_NOT_FOUND: [404, 'LISTING_NOT_FOUND', 'The listing was not found.'],
+      LISTING_NOT_REMOVABLE: [409, 'LISTING_NOT_REMOVABLE', 'Only an approved listing can be removed here.'],
+      LISTING_HAS_ACTIVE_BOOKINGS: [409, 'LISTING_HAS_ACTIVE_BOOKINGS', 'Resolve all open bookings for this listing before removing it.'],
+      LISTING_REMOVAL_REASON_REQUIRED: [400, 'LISTING_REMOVAL_REASON_REQUIRED', 'Add a short reason for removing this listing.'],
+    };
+    const mapped = known[error.message];
+    if (mapped) return next(fail(...mapped));
+    if (error.code === '42501') return next(fail(403, 'ADMIN_REQUIRED', 'Administrator access is required.'));
+    return next(fail(503, 'MODERATION_SERVICE_UNAVAILABLE', 'The listing could not be removed.'));
   }
   res.json({ data });
 });
@@ -180,6 +209,57 @@ export const listReports = asyncHandler(async (req, res, next) => {
   res.json({ data: { reports } });
 });
 
+export const listSecurityEvents = asyncHandler(async (req, res, next) => {
+  if (!requireDb(next)) return;
+  const parsed = securityEventQuerySchema.safeParse(req.query);
+  if (!parsed.success) return validationError(res, parsed);
+  const { data, count, error } = await adminClient.from('security_events')
+    .select('id,event_type,source,severity,status,occurrence_count,first_seen_at,last_seen_at,reviewed_at,resolution,actor:profiles!security_events_actor_id_fkey(id,full_name)', { count: 'exact' })
+    .eq('college_id', req.profile.college_id)
+    .eq('status', parsed.data.status)
+    .order('last_seen_at', { ascending: false })
+    .limit(100);
+  if (error) return next(fail(503, 'SECURITY_EVENTS_UNAVAILABLE', 'The campus security queue could not be loaded.'));
+  res.json({ data: { events: (data ?? []).map((row) => ({
+    id: row.id,
+    eventType: row.event_type,
+    source: row.source,
+    severity: row.severity,
+    status: row.status,
+    occurrenceCount: row.occurrence_count,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    reviewedAt: row.reviewed_at,
+    resolution: row.resolution,
+    actor: row.actor ? { id: row.actor.id, fullName: row.actor.full_name } : null,
+  })), total: count ?? 0 } });
+});
+
+export const reviewSecurityEvent = asyncHandler(async (req, res, next) => {
+  if (!requireDb(next)) return;
+  const parsed = securityEventReviewSchema.safeParse(req.body);
+  if (!parsed.success) return validationError(res, parsed);
+  const { data, error } = await adminClient.rpc('review_security_event', {
+    p_security_event_id: req.params.id,
+    p_admin_id: req.user.id,
+    p_action: parsed.data.action,
+    p_resolution: parsed.data.resolution ?? null,
+  });
+  if (error) {
+    const known = {
+      SECURITY_EVENT_NOT_FOUND: [404, 'SECURITY_EVENT_NOT_FOUND', 'The campus security event was not found.'],
+      SECURITY_EVENT_ALREADY_CLOSED: [409, 'SECURITY_EVENT_ALREADY_CLOSED', 'This security event has already been closed.'],
+      SECURITY_EVENT_RESOLUTION_REQUIRED: [400, 'SECURITY_EVENT_RESOLUTION_REQUIRED', 'Add a short resolution note before closing this event.'],
+      INVALID_SECURITY_EVENT_ACTION: [400, 'INVALID_SECURITY_EVENT_ACTION', 'Choose a valid security event action.'],
+    };
+    const mapped = known[error.message];
+    if (mapped) return next(fail(...mapped));
+    if (error.code === '42501') return next(fail(403, 'ADMIN_REQUIRED', 'Administrator access is required.'));
+    return next(fail(503, 'SECURITY_EVENTS_UNAVAILABLE', 'The security event review could not be saved.'));
+  }
+  res.json({ data });
+});
+
 export const reviewReport = asyncHandler(async (req, res, next) => {
   if (!requireDb(next)) return;
   const parsed = reportReviewSchema.safeParse(req.body);
@@ -218,6 +298,7 @@ export const getAdminOverview = asyncHandler(async (req, res, next) => {
     adminClient.from('refunds').select('id,payment:payments!refunds_payment_id_fkey!inner(booking:bookings!payments_booking_id_fkey!inner(borrower:profiles!bookings_borrower_id_fkey!inner(college_id)))', { count: 'exact', head: true }).in('status', ['requested', 'under_review', 'approved']).eq('payment.booking.borrower.college_id', req.profile.college_id),
     adminClient.from('bookings').select('id,borrower:profiles!bookings_borrower_id_fkey!inner(college_id)', { count: 'exact', head: true }).eq('status', 'active').lt('end_date', cutoff).eq('borrower.college_id', req.profile.college_id),
     adminClient.from('late_fees').select('id,booking:bookings!late_fees_booking_id_fkey!inner(borrower:profiles!bookings_borrower_id_fkey!inner(college_id))', { count: 'exact', head: true }).in('status', ['calculated', 'disputed']).eq('booking.borrower.college_id', req.profile.college_id),
+    adminClient.from('security_events').select('id', { count: 'exact', head: true }).eq('college_id', req.profile.college_id).in('status', ['open', 'under_review']),
   ];
   const results = await Promise.all(queries);
   if (results.some((result) => result.error)) return next(fail(503, 'ADMIN_OVERVIEW_UNAVAILABLE', 'Campus summary counts could not be loaded.'));
@@ -230,6 +311,7 @@ export const getAdminOverview = asyncHandler(async (req, res, next) => {
     refundsToReview: results[5].count ?? 0,
     overdueBookings: results[6].count ?? 0,
     feesToReview: results[7].count ?? 0,
+    securityEventsToReview: results[8].count ?? 0,
   } } });
 });
 

@@ -40,21 +40,21 @@ export default function AdminPage() {
 
   async function review(listing, action) {
     const reason = (reasons[listing.id] ?? '').trim();
-    if (action === 'reject' && reason.length < 2) {
-      setNotice({ kind: 'error', text: 'Add a short reason before rejecting this listing.' });
+    if (['reject', 'remove'].includes(action) && reason.length < 2) {
+      setNotice({ kind: 'error', text: action === 'remove' ? 'Add a short reason before removing this listing.' : 'Add a short reason before rejecting this listing.' });
       return;
     }
-    const prompt = action === 'approve' ? `Approve “${listing.title}”?` : `Reject “${listing.title}” and send the owner this reason?`;
+    const prompt = action === 'approve' ? `Approve “${listing.title}”?` : action === 'remove' ? `Remove “${listing.title}” from the campus marketplace?` : `Reject “${listing.title}” and send the owner this reason?`;
     if (!window.confirm(prompt)) return;
     setBusyId(listing.id);
     setNotice(null);
     try {
-      await apiRequest(`/admin/listings/${listing.id}/review`, {
+      await apiRequest(`/admin/listings/${listing.id}/${action === 'remove' ? 'remove' : 'review'}`, {
         method: 'PATCH',
-        body: { action, ...(action === 'reject' ? { reason } : {}) },
+        body: action === 'remove' ? { reason } : { action, ...(action === 'reject' ? { reason } : {}) },
       });
       setResult((current) => ({ ...current, listings: current.listings.filter((item) => item.id !== listing.id) }));
-      setNotice({ kind: 'success', text: `Listing ${action === 'approve' ? 'approved' : 'returned for changes'}.` });
+      setNotice({ kind: 'success', text: action === 'approve' ? 'Listing approved.' : action === 'remove' ? 'Listing removed from the campus marketplace.' : 'Listing returned for changes.' });
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
     } finally {
@@ -66,7 +66,7 @@ export default function AdminPage() {
     <main id="main" className="marketplace-page wrap">
       <div className="marketplace-heading">
         <div><div className="eyebrow">CAMPUS ADMINISTRATION</div><h1>Listing moderation</h1><p>Review student listings and give clear feedback on changes.</p></div>
-        <span className="admin-page-links"><Link className="outline-button" to="/admin/bookings">Bookings</Link><Link className="outline-button" to="/admin/users">Students</Link><Link className="outline-button" to="/admin/disputes">Disputes</Link><Link className="outline-button" to="/admin/reports">Reports</Link><Link className="outline-button" to="/admin/overdue">Overdue</Link><Link className="outline-button" to="/admin/refunds">Refunds</Link><Link className="outline-button" to="/admin/audit">Audit history</Link><Link className="outline-button" to="/dashboard">Student dashboard</Link></span>
+        <span className="admin-page-links"><Link className="outline-button" to="/admin/bookings">Bookings</Link><Link className="outline-button" to="/admin/users">Students</Link><Link className="outline-button" to="/admin/disputes">Disputes</Link><Link className="outline-button" to="/admin/reports">Reports</Link><Link className="outline-button" to="/admin/security">Security activity</Link><Link className="outline-button" to="/admin/overdue">Overdue</Link><Link className="outline-button" to="/admin/refunds">Refunds</Link><Link className="outline-button" to="/admin/audit">Audit history</Link><Link className="outline-button" to="/dashboard">Student dashboard</Link></span>
       </div>
       {overview.error && <div className="form-alert error" role="alert">Summary counts could not be loaded. <button className="text-button" onClick={() => setOverviewRetry((count) => count + 1)}>Retry</button></div>}
       {overview.counts && <section className="admin-stats-grid" aria-label="Campus summary">
@@ -74,18 +74,20 @@ export default function AdminPage() {
           ['Students', overview.counts.students], ['Bookings to monitor', overview.counts.activeBookings],
           ['Listings to review', overview.counts.listingsToReview], ['Reports', overview.counts.reportsToReview],
           ['Disputes', overview.counts.disputesToReview], ['Refunds', overview.counts.refundsToReview],
+          ['Security events', overview.counts.securityEventsToReview],
           ['Overdue', overview.counts.overdueBookings], ['Fees to review', overview.counts.feesToReview],
         ].map(([label, value]) => <article className="admin-stat-card" key={label}><span>{label}</span><b>{value}</b></article>)}
       </section>}
       <div className="booking-toolbar" role="group" aria-label="Moderation queue">
         <button className={queueStatus === 'pending_review' ? 'booking-filter active' : 'booking-filter'} onClick={() => setQueueStatus('pending_review')}>Awaiting review</button>
         <button className={queueStatus === 'rejected' ? 'booking-filter active' : 'booking-filter'} onClick={() => setQueueStatus('rejected')}>Returned for changes</button>
+        <button className={queueStatus === 'approved' ? 'booking-filter active' : 'booking-filter'} onClick={() => setQueueStatus('approved')}>Approved listings</button>
       </div>
-      <p className="booking-payment-note">Review listing text and photos. Approval makes the item visible to verified students at the same campus.</p>
+      <p className="booking-payment-note">Review listing text and photos. Removal archives an approved listing and is blocked while it has open bookings.</p>
       {notice && <div className={`form-alert ${notice.kind}`} role="status">{notice.text}</div>}
       {loading ? <div className="state-panel" aria-live="polite">Loading the moderation queue…</div>
         : result.error ? <section className="state-panel error" role="alert"><b>We couldn’t load the review queue.</b><p>{result.error.message}</p><button className="outline-button" onClick={() => setRetryCount((count) => count + 1)}>Try again</button></section>
-          : result.listings.length === 0 ? <section className="state-panel"><div className="empty-mark">✓</div><h2>Nothing to review.</h2><p>New submissions will appear in this queue.</p></section>
+          : result.listings.length === 0 ? <section className="state-panel"><div className="empty-mark">✓</div><h2>{queueStatus === 'approved' ? 'No approved listings to review.' : 'Nothing to review.'}</h2><p>{queueStatus === 'approved' ? 'Approved campus listings will appear here.' : 'New submissions will appear in this queue.'}</p></section>
             : <div className="moderation-list">{result.listings.map((listing) => <article className="moderation-card" key={listing.id}>
               <div className="moderation-media">{listing.photos.map((photo) => photo.url && <img src={photo.url} alt={listing.title} key={photo.id} />)}</div>
               <div className="moderation-body">
@@ -94,9 +96,11 @@ export default function AdminPage() {
                 <div className="moderation-meta"><span>Submitted by <b>{listing.owner?.fullName ?? 'Campus student'}</b></span><span>{money(listing.pricePerDay)} / day</span><span>Deposit requested: {money(listing.depositAmount)}</span><span>Handover: {listing.handoverLocation}</span></div>
                 {listing.rules && <p><b>Rules:</b> {listing.rules}</p>}
                 {queueStatus === 'pending_review' && <label className="form-field">Reason for rejection<textarea rows="2" maxLength={1000} value={reasons[listing.id] ?? ''} onChange={(event) => setReasons((current) => ({ ...current, [listing.id]: event.target.value }))} placeholder="Tell the student what needs to change before resubmitting." /></label>}
+                {queueStatus === 'approved' && <label className="form-field">Reason for removal<textarea rows="2" maxLength={1000} value={reasons[listing.id] ?? ''} onChange={(event) => setReasons((current) => ({ ...current, [listing.id]: event.target.value }))} placeholder="Explain why this listing is being removed from the campus marketplace." /></label>}
                 <div className="booking-actions">
-                  <button className="button" disabled={busyId === listing.id} onClick={() => review(listing, 'approve')}>{busyId === listing.id ? 'Saving…' : 'Approve listing'}</button>
+                  {queueStatus !== 'approved' && <button className="button" disabled={busyId === listing.id} onClick={() => review(listing, 'approve')}>{busyId === listing.id ? 'Saving…' : 'Approve listing'}</button>}
                   {queueStatus === 'pending_review' && <button className="outline-button" disabled={busyId === listing.id} onClick={() => review(listing, 'reject')}>Return for changes</button>}
+                  {queueStatus === 'approved' && <button className="outline-button" disabled={busyId === listing.id} onClick={() => review(listing, 'remove')}>{busyId === listing.id ? 'Saving…' : 'Remove listing'}</button>}
                   {queueStatus === 'rejected' && <span className="booking-payment-note">The owner can edit and resubmit this listing.</span>}
                 </div>
               </div>

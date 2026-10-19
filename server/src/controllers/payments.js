@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { toMinorUnits, verifyCheckoutSignature, verifyHmacHex } from '../utils/payment-security.js';
 import { paymentOrderSchema, paymentVerificationSchema, refundReviewSchema } from '../validators/payments.js';
+import { recordSecurityEvent } from '../utils/security-events.js';
 
 function fail(status, code, message) {
   return Object.assign(new Error(message), { status, code });
@@ -177,6 +178,7 @@ export const verifyPayment = asyncHandler(async (req, res, next) => {
   if (error) return next(fail(503, 'PAYMENT_SERVICE_UNAVAILABLE', 'The payment record could not be checked.'));
   if (!payment) return next(fail(404, 'PAYMENT_ORDER_NOT_FOUND', 'The payment order was not found.'));
   if (!verifyCheckoutSignature(orderId, paymentId, signature, env.razorpayKeySecret)) {
+    await recordSecurityEvent(req.user.id, 'invalid_payment_signature', 'payment_checkout');
     return next(fail(400, 'INVALID_PAYMENT_SIGNATURE', 'Razorpay could not verify this checkout response.'));
   }
 

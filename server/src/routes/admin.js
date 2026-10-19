@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireVerifiedEmail, requireProfile, requireTermsAccepted, requireAdmin } from '../middleware/auth.js';
-import { getAdminOverview, listAdminAudit, listAdminBookings, listAdminUsers, listDisputes, listModerationQueue, listReports, resolveDispute, reviewListing, reviewReport } from '../controllers/admin.js';
+import { getAdminOverview, listAdminAudit, listAdminBookings, listAdminUsers, listDisputes, listModerationQueue, listReports, listSecurityEvents, removeAdminListing, resolveDispute, reviewListing, reviewReport, reviewSecurityEvent } from '../controllers/admin.js';
 import { listRefundRequests, reviewRefund } from '../controllers/payments.js';
 import { getOverdueDashboard, reviewLateFee } from '../controllers/overdue.js';
 
@@ -11,8 +11,11 @@ router.get('/overview', getAdminOverview);
 router.get('/users', listAdminUsers);
 router.get('/bookings', listAdminBookings);
 router.get('/audit', listAdminAudit);
+router.get('/security-events', listSecurityEvents);
+router.patch('/security-events/:id/review', reviewSecurityEvent);
 router.get('/listings', listModerationQueue);
 router.patch('/listings/:id/review', reviewListing);
+router.patch('/listings/:id/remove', removeAdminListing);
 router.get('/disputes', listDisputes);
 router.patch('/disputes/:id/review', resolveDispute);
 router.get('/refunds', listRefundRequests);

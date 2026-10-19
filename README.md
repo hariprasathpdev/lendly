@@ -70,8 +70,8 @@ The frontend is at `http://localhost:5173`. The API health check is `http://loca
 - The server calculates the order amount, creates the provider order, verifies checkout signatures, checks payment status with Razorpay, and verifies webhook signatures against the exact raw body. Razorpay test payments must be configured for automatic capture; the app confirms only a captured payment.
 - Test-mode deposit refunds require borrower request and admin review. Approval does not issue a refund: an operator issues the partial deposit refund in the Razorpay test dashboard and records the returned `rfnd_` reference in the admin page. Demo payments cannot be refunded because no money was collected.
 - Students can report listings; verified borrowers and lenders can report a booking. Administrators triage, resolve, or dismiss reports with an audit record.
-- An external daily scheduler can call the protected overdue endpoint. It sends in-app reminders after the configurable grace period and records one auditable late-fee calculation per overdue day; it never collects a fee. Administrators can confirm or waive the calculation.
-- Set `OVERDUE_GRACE_DAYS` in `server/.env` (default `1`) and a random `CRON_SECRET` of at least 32 characters. Keep the secret on the server and in the scheduler's secret store. Call `POST /api/v1/internal/overdue/run` once per day with `Authorization: Bearer <CRON_SECRET>`. Repeated calls on the same day are idempotent. If a scheduled day is missed, the next run backfills the daily fee records; reminders are sent for the run date.
+- The Render Blueprint includes a daily scheduler for the protected overdue endpoint. It sends in-app reminders after the configurable grace period and records one auditable late-fee calculation per overdue day; it never collects a fee. Administrators can confirm or waive the calculation. Other hosts need a scheduler configured as described in [docs/deployment.md](docs/deployment.md).
+- Set `OVERDUE_GRACE_DAYS` in `server/.env` (default `1`) and a random `CRON_SECRET` of at least 32 characters. The Render Blueprint generates the server secret and shares it with the Cron service. Repeated calls on the same day are idempotent. If a scheduled day is missed, the next run backfills the daily fee records; reminders are sent for the run date.
 - No real payment mode is implemented. See [docs/deployment.md](docs/deployment.md) for provider setup and [docs/security.md](docs/security.md) for security limits.
 
 ## Project structure
@@ -101,24 +101,34 @@ docs/                   Architecture, security, schema, and operations notes
 - `npm run lint` — lint client and server JavaScript.
 - `npm start` — start the Express API.
 
+## Troubleshooting
+
+- **The API says Supabase is not configured:** confirm `server/.env` has the project URL, anon key, and service-role key. Restart `npm run dev` after changing env files.
+- **Protected pages do not load:** set the same project URL and public anon key in `client/.env`, verify the account's college email, and confirm the server uses the allowed domain. Never copy the service-role key to the client.
+- **Verification or recovery links return to the wrong page:** add `http://localhost:5173/auth/callback` and `http://localhost:5173/reset-password` to Supabase Auth's local redirect allowlist. Production URLs must be configured separately.
+- **Database operations return a setup or missing-schema error:** from the repository root, authenticate and link the intended Supabase project, then run `npx supabase db push`. Check the project ref before applying changes. For local development only, `npx supabase db reset` recreates the local database and reapplies migrations and seed data.
+- **The browser reports a CORS error:** set `CLIENT_ORIGINS` in `server/.env` to the exact frontend origin, such as `http://localhost:5173`, then restart the API.
+- **Razorpay checkout is unavailable:** keep `PAYMENT_MODE=demo` until valid test credentials are configured in `server/.env`. The project has no live-payment mode.
+- **The dev server reports a port conflict:** close the earlier Lendly dev terminal, then run `npm run dev` again. If another application owns the port, change the server `PORT` and the Vite `server.port`, then update `VITE_API_URL` to match.
+
 ## Safe first administrator
 
 Create and verify a normal college-email account. Then, from the Supabase SQL editor or another secured operator session, follow the one-user role update in [docs/security.md](docs/security.md). Do not create a public admin signup path and do not share a service-role key.
 
 ## Legal and operational readiness
 
-Terms, privacy, borrowing, cancellation, deposit, and dispute content are draft templates that need appropriate review before public commercial use. Error monitoring, retention/deletion, backup restoration, support contact, and the external daily scheduler still need owner setup. No live payment mode, deposit hold, or late-fee collection is implemented. Refunds are limited to an auditable test-mode request and manual provider-dashboard workflow.
+Terms, privacy, borrowing, cancellation, deposit, and dispute content are draft templates that need appropriate review before public commercial use. Error monitoring, approved retention periods and deletion, backup restoration, and a real support contact still need owner setup. The Render scheduler is configured in code but must be deployed and verified. See [docs/operational-readiness.md](docs/operational-readiness.md) and [docs/data-retention.md](docs/data-retention.md). No live payment mode, deposit hold, or late-fee collection is implemented. Refunds are limited to an auditable test-mode request and manual provider-dashboard workflow.
 
 ## Deployment
 
-Follow [docs/deployment.md](docs/deployment.md) for Supabase, Render, and Vercel setup. No hosting credentials or production URL have been provided, so no public deployment is claimed.
+Follow [docs/deployment.md](docs/deployment.md) for Supabase, Render, and Vercel setup. `render.yaml` and `vercel.json` prepare the host configurations; no hosting credentials or production URL have been provided, so no public deployment is claimed. Review Render's current Starter plan pricing before creating the service.
 
 ## Current implementation status
 
-- **Implemented:** local landing and authentication screens; server-checked college email; profile editing; listing create/edit/archive/pause; private photo upload and removal; campus-scoped discovery, filters, pagination, and related items; booking requests and lifecycle; private conversations; notifications; listing reports and booking disputes; student ratings and review history; admin overview counts, account directory, booking oversight, listing moderation, report/dispute/refund/late-fee review, and audit history; configurable overdue reminders and auditable daily fee calculations; demo payment; and Razorpay test orders, signature checks and webhook processing.
+- **Implemented:** local landing and authentication screens; server-checked college email; profile editing; listing create/edit/archive/pause; private photo upload and removal; campus-scoped discovery, filters, pagination, and related items; booking requests and lifecycle; private conversations; notifications; listing reports and booking disputes; student ratings and review history; admin overview counts, account directory, booking oversight, listing moderation and audited removal, report/dispute/refund/late-fee review, security event review, and audit history; configurable overdue reminders and auditable daily fee calculations; demo payment; and Razorpay test orders, signature checks and webhook processing.
 - **Local verification:** run `npm run lint`, `npm test`, and `npm run build` from the repository root. Passing local checks do not verify Supabase SQL or Razorpay network behavior.
 - **Needs account setup:** configure Supabase URL and keys, apply migrations, configure email delivery and redirects, then verify signup and the full workflow against the database.
 - **Payment setup:** see [docs/payments.md](docs/payments.md) for safe demo, disabled, Razorpay test, and manual deposit-refund steps.
-- **Still to build or verify:** a purpose-built suspicious-activity event review flow; applying and validating SQL migrations; a real Razorpay test checkout/webhook/refund walkthrough with owner credentials; a full multi-account browser workflow; configuring and exercising the external overdue scheduler; and production deployment.
-- **Not validated here:** the SQL migrations have not been applied because Supabase CLI, Docker, PostgreSQL command-line tools, and project credentials are not available in this workspace. Provider network requests and public deployment are not verified. No live payment is claimed.
+- **Still to build or verify:** applying migrations to hosted Supabase and checking provider-specific Auth/RLS/Storage behavior; a real Razorpay test checkout/webhook/refund walkthrough with owner credentials; a full multi-account browser workflow; deploying and exercising the Render overdue scheduler; and production deployment.
+- **Not validated here:** all 10 migrations were accepted in order by a disposable PostgreSQL 18 instance with minimal Auth/Storage compatibility schemas. This checks PostgreSQL syntax and sequence, not Supabase-specific behavior. No migration was applied to a hosted project; provider network requests and public deployment are not verified. No live payment is claimed.
 - **Before launch:** obtain legal review for the draft policies, publish a support contact, define retention and deletion, configure monitoring and backups, and complete a security review with test accounts.

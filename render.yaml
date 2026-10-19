@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: lendly-api
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24.21.0
+      - key: ALLOWED_EMAIL_DOMAINS
+        value: kongu.edu
+      - key: PAYMENT_MODE
+        value: demo
+      - key: OVERDUE_GRACE_DAYS
+        value: 1
+      - key: CLIENT_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
+  - type: cron
+    name: lendly-overdue-check
+    runtime: node
+    plan: starter
+    region: singapore
+    schedule: "0 0 * * *"
+    buildCommand: "true"
+    startCommand: node server/scripts/run-overdue.js
+    envVars:
+      - key: NODE_VERSION
+        value: 24.21.0
+      - key: API_HOSTPORT
+        fromService:
+          type: web
+          name: lendly-api
+          property: hostport
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: lendly-api
+          envVarKey: CRON_SECRET
